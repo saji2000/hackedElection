@@ -35,7 +35,7 @@ class Blockchain(object):
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
-            'transactions': self.current_votes,
+            'candidates': self.current_votes,
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
@@ -95,11 +95,63 @@ class Blockchain(object):
 
 app = Flask(__name__)
 
+# Generate a globally unique address for this node
+node_identifier = str(uuid4()).replace('-', '')
 
-@app.route("/")
-def home():
-    return "Hello, Wo!"
+# Instantiate the Blockchain
+blockchain = Blockchain()
 
+@app.route('/mine', methods=['GET'])
+def mine():
+    # We run the proof of work algorithm to get the next proof...
+    last_block = blockchain.last_block
+    last_proof = last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
 
-if __name__ == "__main__":
-    app.run(debug=True)
+    # We must receive a reward for finding the proof.
+    # The sender is "0" to signify that this node has mined a new coin.
+    """    
+    blockchain.new_`transaction(
+        sender="0",
+        recipient=node_identifier,
+        amount=1,
+    )
+    """
+    # Forge the new Block by adding it to the chain
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(proof, previous_hash)
+
+    response = {
+        'message': "New Block Forged",
+        'index': block['index'],
+        'candidate': block['candidates'],
+        'proof': block['proof'],
+        'previous_hash': block['previous_hash'],
+    }
+    return jsonify(response), 200
+
+@app.route('/vote', methods=['POST'])
+def new_vote():
+    values = request.get_json()
+
+    # Check that the required fields are in the POST'ed data
+    required = ['voter', 'candidate']
+    if not all(k in values for k in required):
+        return jsonify('Missing values'), 400
+
+    # Create a new Transaction
+    index = blockchain.new_vote(values['voter'], values['candidate'])
+
+    response = {'message': f'Vote will be added to Block {index}'}
+    return jsonify(response), 201
+
+@app.route('/chain', methods=['GET'])
+def full_chain():
+    response = {
+        'chain': blockchain.chain,
+        'length': len(blockchain.chain),
+    }
+    return jsonify(response), 200
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000)
