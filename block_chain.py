@@ -132,8 +132,11 @@ def mine():
 
 @app.route('/vote', methods=['POST'])
 def new_vote():
-    values = request.get_json()
+    print("1")
 
+    values = request.get_json(force=True)
+    print("3")
+    print(values)
     # Check that the required fields are in the POST'ed data
     required = ['voter', 'candidate']
     if not all(k in values for k in required):
