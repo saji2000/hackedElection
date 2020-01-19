@@ -6,13 +6,86 @@ from uuid import uuid4
 import requests
 from flask import Flask, jsonify, request
 
+import urllib.request
+import getpass
+import pickle
+import socket
+from tcp_latency import measure_latency
+
+
 
 class Blockchain(object):
     def __init__(self):
         self.chain = []
         self.current_votes = []
-
+        self.nodes = set()
         self.new_block(proof = 100, previous_hash = 1)
+
+    def valid_chain(self, chain):
+        """
+        Determine if a given blockchain is valid
+        :param chain: <list> A blockchain
+        :return: <bool> True if valid, False if not
+        """
+
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+            print(f'{last_block}')
+            print(f'{block}')
+            print("\n-----------\n")
+            # Check that the hash of the block is correct
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+
+            # Check that the Proof of Work is correct
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+
+            last_block = block
+            current_index += 1
+
+        return True
+
+    def resolve_conflicts(self):
+        """
+        This is our Consensus Algorithm, it resolves conflicts
+        by replacing our chain with the longest one in the network.
+        :return: <bool> True if our chain was replaced, False if not
+        """
+
+        neighbours = self.nodes
+        new_chain = None
+
+        # We're only looking for chains longer than ours
+        max_length = len(self.chain)
+
+        # Grab and verify the chains from all the nodes in our network
+        for node in neighbours:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                # Check if the length is longer and the chain is valid
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        # Replace our chain if we discovered a new, valid chain longer than ours
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
+
+    def new_node(self, address):
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
+
 
     def new_vote(self, voter, candidate):
         self.current_votes.append({
@@ -132,11 +205,8 @@ def mine():
 
 @app.route('/vote', methods=['POST'])
 def new_vote():
-    print("1")
-
     values = request.get_json(force=True)
-    print("3")
-    print(values)
+
     # Check that the required fields are in the POST'ed data
     required = ['voter', 'candidate']
     if not all(k in values for k in required):
@@ -156,5 +226,86 @@ def full_chain():
     }
     return jsonify(response), 200
 
+@app.route("/node/register", methods=['POST'])
+def node_register():
+    values = request.get_json(force=True)
+
+    nodes = values.get('nodes')
+
+    if nodes is None:
+        return "Error: Please supply a valid list of nodes"
+
+    for node in nodes:
+        blockchain.new_node(node)
+
+    response = {
+        'message': 'New nodes have been added',
+        'total_nodes': list(blockchain.nodes),
+    }
+
+    return jsonify(response), 201
+
+@app.route('/nodes/resolve', methods=['GET'])
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+
+    if replaced:
+        response = {
+            'message': 'Our chain was replaced',
+            'new_chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': 'Our chain is authoritative',
+            'chain': blockchain.chain
+        }
+
+    return jsonify(response), 200
+
+# real
+
+url = 'http://electioncanada-com.stackstaging.com/nodes.p'
+user = getpass.getuser()
+location = 'C:/Users/' + user
+urllib.request.urlretrieve(url, location)
+location = location+"/nodes.p"
+
+file = open(location, "rb")
+nodes = pickle.load(file)
+lowPing_10 = []
+
+def connect(peer_index):
+    try:
+        print("Trying to connect to ", nodes[peer_index])
+        # Try to establish the connection
+        err = socket.connect(nodes[peer_index])
+        return peer_index
+    except Exception:
+        # Somehow the peer did not respond, test the next index
+        # Sidenote: Recursive call to test the next peer
+        # You would it not do like this in a real world, but it is for educational purposes only
+        return connect(peer_index + 1)
+
+
+for i in range(10) and len(nodes)!=0:
+    lowPing_10.append(min(nodes))
+    nodes.remove(min(nodes))
+
+peer_index = connect(0)
+
+def check_in():
+
+
+def loop():
+    check_in()
+
+
+
+
+
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000)
+    make_connection()
+
+
